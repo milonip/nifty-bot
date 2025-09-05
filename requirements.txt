@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+scikit-learn
+xgboost
+lightgbm
+pandas
+numpy
+sqlalchemy>=2.0
+aiosqlite
+apscheduler
+python-dotenv
+pyarrow

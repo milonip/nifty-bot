@@ -1,0 +1,29 @@
+{
+  "name": "nifty-bot",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.11"
+    }
+  },
+  "containerEnv": {
+    "TZ": "Asia/Kolkata"
+  },
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": {
+      "label": "FastAPI (nifty-bot)",
+      "onAutoForward": "openBrowser"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-azuretools.vscode-docker",
+        "tamasfe.even-better-toml"
+      ]
+    }
+  },
+  "postCreateCommand": "pip install --upgrade pip && pip install -r requirements.txt"
+}
