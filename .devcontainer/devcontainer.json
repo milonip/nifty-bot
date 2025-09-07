@@ -1,19 +1,10 @@
 {
   "name": "nifty-bot",
-  "features": {
-    "ghcr.io/devcontainers/features/python:1": {
-      "version": "3.11"
-    }
-  },
-  "containerEnv": {
-    "TZ": "Asia/Kolkata"
-  },
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "containerEnv": { "TZ": "Asia/Kolkata" },
   "forwardPorts": [8000],
   "portsAttributes": {
-    "8000": {
-      "label": "FastAPI (nifty-bot)",
-      "onAutoForward": "openBrowser"
-    }
+    "8000": { "label": "FastAPI (nifty-bot)", "onAutoForward": "openBrowser" }
   },
   "customizations": {
     "vscode": {
@@ -25,5 +16,5 @@
       ]
     }
   },
-  "postCreateCommand": "pip install --upgrade pip && pip install -r requirements.txt"
+  "postCreateCommand": "python -m pip install --upgrade pip && python -m pip install -r requirements.txt"
 }

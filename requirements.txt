@@ -10,3 +10,11 @@ aiosqlite
 apscheduler
 python-dotenv
 pyarrow
+
+# SmartAPI (quotes only; PAPER mode)
+smartapi-python==1.5.5
+pyotp
+logzero==1.7.0
+pycryptodome
+websocket-client
+requests
