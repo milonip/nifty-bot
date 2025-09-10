@@ -18,3 +18,4 @@ logzero==1.7.0
 pycryptodome
 websocket-client
 requests
+jinja2

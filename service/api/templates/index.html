@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>NIFTY Paper Bot</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="/static/favicon.ico">
+  <style>
+    :root { --bg:#0b0f14; --card:#121821; --text:#e9eef7; --muted:#9fb0c3; --pos:#18c37d; --neg:#ff6b6b; --accent:#5ea1ff; }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font:14px/1.35 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
+    header{padding:18px 22px;border-bottom:1px solid #1e2633;display:flex;justify-content:space-between;align-items:center}
+    h1{margin:0;font-size:18px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;padding:16px}
+    .card{background:var(--card);border:1px solid #1c2431;border-radius:14px;padding:14px;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+    .k{color:var(--muted);font-size:12px}
+    .v{font-weight:600}
+    .row{display:flex;justify-content:space-between;margin:4px 0}
+    .pos{color:var(--pos)} .neg{color:var(--neg)}
+    button{background:var(--accent);border:0;color:#fff;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer}
+    button.muted{background:#243247;color:var(--muted)}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th,td{border-bottom:1px solid #1e2633;padding:8px 6px;text-align:left}
+    small{color:var(--muted)}
+    .buttons{display:flex;gap:8px;flex-wrap:wrap}
+    code{background:#0e141d;color:#cde; padding:2px 6px;border-radius:6px}
+  </style>
+</head>
+<body>
+<header>
+  <h1>NIFTY Options ML – PAPER</h1>
+  <small id="clock">IST —</small>
+</header>
+
+<div class="grid">
+  <section class="card">
+    <h3>Funds</h3>
+    <div class="row"><span class="k">Cash</span><span class="v" id="funds_cash">—</span></div>
+    <div class="row"><span class="k">Realized</span><span class="v" id="funds_realized">—</span></div>
+    <div class="row"><span class="k">Unrealized (MTM)</span><span class="v" id="funds_unrealized">—</span></div>
+    <div class="row"><span class="k">Next jobs (IST)</span><span class="v" id="next_jobs">—</span></div>
+    <div class="buttons" style="margin-top:10px">
+      <button onclick="post('/paper/buy')">BUY (paper)</button>
+      <button onclick="post('/paper/sell')">SELL (paper)</button>
+      <button class="muted" onclick="confirmReset()">Reset</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>Open Position</h3>
+    <div id="open_pos">No open position.</div>
+  </section>
+
+  <section class="card">
+    <h3>Prediction</h3>
+    <div id="pred">—</div>
+  </section>
+
+  <section class="card" style="grid-column:1/-1">
+    <h3>Trade History</h3>
+    <table>
+      <thead><tr><th>Opened</th><th>Legs</th><th>Lots</th><th>Entry</th><th>Exit</th><th>P&L</th></tr></thead>
+      <tbody id="hist"></tbody>
+    </table>
+  </section>
+</div>
+
+<script>
+const fmtINR = n => (n===null || n===undefined) ? '—'
+  : new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n);
+
+const tz = 'Asia/Kolkata';
+function tzFmt(ts){
+  if (!ts) return '—';
+  try { return new Date(ts).toLocaleString('en-IN',{timeZone:tz}); }
+  catch { return String(ts); }
+}
+
+async function getJSON(u){ const r = await fetch(u); return r.json(); }
+async function post(u){ const r = await fetch(u,{method:'POST'}); const j = await r.json(); console.log(j); await refresh(); }
+
+function confirmReset(){
+  if(confirm('Reset PAPER ledger/positions and reseed funds?')) post('/paper/reset');
+}
+
+function formatJobs(jobs){
+  if (!Array.isArray(jobs) || jobs.length===0) return '—';
+  return jobs.map(j => {
+    if (typeof j === 'string') return j;
+    if (j && typeof j === 'object') {
+      const id = j.id || j.name || 'job';
+      const when = j.next || j.next_run || j.when || j.time;
+      return `${id}: ${tzFmt(when)}`;
+    }
+    return String(j);
+  }).join(' • ');
+}
+
+async function refresh(){
+  const st = await getJSON('/status');
+
+  // Funds
+  document.getElementById('funds_cash').textContent = fmtINR(st?.funds?.cash);
+  document.getElementById('funds_realized').textContent = fmtINR(st?.funds?.realized);
+  document.getElementById('funds_unrealized').textContent = fmtINR(st?.funds?.unrealized);
+  document.getElementById('next_jobs').textContent = formatJobs(st?.next_jobs_IST);
+
+  // Open position
+  const posDiv = document.getElementById('open_pos');
+  if(st.open_position){
+    const p = st.open_position;
+    posDiv.innerHTML = `<div class="row"><span class="k">Lots</span><span class="v">${p.lots} lots (qty=${p.lots * p.lot_size})</span></div>
+      <div class="row"><span class="k">Legs</span><span class="v">${(p.legs||[]).map(l => l.symbol).join(' + ')}</span></div>
+      <div class="row"><span class="k">Entry</span><span class="v">${tzFmt(p.ts)}</span></div>`;
+  } else {
+    posDiv.textContent = 'No open position.';
+  }
+
+  // History (placeholder until engine writes real history)
+  const hist = await getJSON('/trade-history');
+  const tb = document.getElementById('hist');
+  tb.innerHTML = (hist.items||[]).slice(0,25).map(h => `
+    <tr>
+      <td>${tzFmt(h.open_ts)}</td>
+      <td>${(h.legs||[]).map(l=>l.symbol).join(' + ')}</td>
+      <td>${h.lots ?? '—'}</td>
+      <td>${fmtINR(h.entry_value)}</td>
+      <td>${h.exit_ts ? fmtINR(h.exit_value) : '—'}</td>
+      <td class="${(h.pnl||0)>=0?'pos':'neg'}">${fmtINR(h.pnl)}</td>
+    </tr>`).join('');
+
+  // Prediction card
+  const pred = await getJSON('/prediction');
+  document.getElementById('pred').innerHTML =
+    `<div class="row"><span class="k">Direction</span><span class="v">${pred.direction ?? '—'}</span></div>
+     <div class="row"><span class="k">Confidence</span><span class="v">${pred.confidence != null ? (pred.confidence*100).toFixed(1)+'%' : '—'}</span></div>
+     <div class="row"><span class="k">Strikes</span><span class="v">${(pred.suggested_strikes||[]).join(', ') || '—'}</span></div>`;
+}
+
+function tickClock(){
+  document.getElementById('clock').textContent = new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
+}
+setInterval(tickClock, 1000); tickClock();
+refresh(); setInterval(refresh, 10_000);
+</script>
+</body>
+</html>
