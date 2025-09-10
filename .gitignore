@@ -1,0 +1,30 @@
+# env & secrets
+.env
+*.env
+*.secrets
+# data & db
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/*.parquet
+data/raw/
+data/processed/
+data/vendor/
+# models & reports (large/binary)
+models/*.pkl
+ml/registry/
+reports/
+# Python junk
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+# build/venv
+.venv/
+venv/
+.eggs/
+dist/
+build/
+# codespaces/devcontainer artifacts
+.devcontainer/*.log
+vendor/
