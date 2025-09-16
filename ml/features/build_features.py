@@ -1,43 +1,89 @@
-# TODO: Build leak-free features available by 15:28 IST on T-day.
 # ml/features/build_features.py
-import os, argparse, pandas as pd, numpy as np
+from __future__ import annotations
+import argparse
+from pathlib import Path
+import pandas as pd
+import numpy as np
 
-def add_basic_feats(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
+# columns we’ll try to use if present
+CANDIDATE_FEATURES = [
+    "open15_ret", "open15_hl_range_bps", "open15_mom_bps", "open15_vol_bp",
+    "late28_ret", "late28_hl_range_bps", "late28_mom_bps", "late28_vol_bp",
+    # vix
+    "vix_close", "vix_delta_pct",
+]
 
-    # direction label (UP=1 if overnight_ret>0)
-    out["dir_up"] = (out["overnight_ret"] > 0).astype(int)
+LABEL_UP_COL       = "label_up"
+LABEL_RET_BPS_COL  = "overnight_ret_bps"
 
-    # scale raw features to practical units
-    for c in ["open15_mom_bps","late28_mom_bps","open15_hl_range_bps","late28_hl_range_bps","open15_vol_bp","late28_vol_bp"]:
-        if c in out.columns:
-            # already in bps from assembler; keep as-is
-            pass
+def _safe_get(df: pd.DataFrame, want: str, *fallbacks: str, default=None):
+    if want in df.columns:
+        return df[want]
+    for alt in fallbacks:
+        if alt in df.columns:
+            return df[alt]
+    if default is not None:
+        return pd.Series(default, index=df.index)
+    raise KeyError(f"Missing required column: {want} (also tried {fallbacks})")
 
-    # vix features
-    out["vix_delta_pct"] = (out["vix_delta"] / out["vix_close_t_1"]).replace([np.inf,-np.inf], np.nan)
+def build(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """
+    Accepts the columns produced by assemble_training_table.py in your repo
+    and emits:
+      - feature columns (subset of CANDIDATE_FEATURES that exist)
+      - labels: label_up, overnight_ret_bps
+    """
+    # --- rename / derive expected inputs ---
+    # vix_close wanted; your dataset has vix_close_t
+    vix_close = _safe_get(df, "vix_close", "vix_close_t", default=np.nan)
+    # vix delta pct (already a pct in your data as vix_delta)
+    vix_delta_pct = _safe_get(df, "vix_delta_pct", "vix_delta", default=np.nan)
 
-    # seasonality
-    out["dow"] = pd.to_datetime(out["date"]).dt.dayofweek
-    out = pd.get_dummies(out, columns=["dow"], prefix="dow", drop_first=False)
+    # base features already present (open15_*, late28_*)
+    feats = pd.DataFrame(index=df.index)
+    for col in [
+        "open15_ret", "open15_hl_range_bps", "open15_mom_bps", "open15_vol_bp",
+        "late28_ret", "late28_hl_range_bps", "late28_mom_bps", "late28_vol_bp",
+    ]:
+        if col in df.columns:
+            feats[col] = df[col]
 
-    # safe fills
-    out = out.replace([np.inf,-np.inf], np.nan)
-    out = out.fillna(0.0)
-    return out
+    feats["vix_close"] = vix_close
+    feats["vix_delta_pct"] = vix_delta_pct
+
+    # --- labels ---
+    # your dataset already has overnight_ret (fractional)
+    if "overnight_ret" not in df.columns:
+        raise ValueError("Missing required column 'overnight_ret' in dataset")
+    feats[LABEL_RET_BPS_COL] = (df["overnight_ret"].astype(float) * 1e4)
+    feats[LABEL_UP_COL]      = (df["overnight_ret"].astype(float) > 0).astype(int)
+
+    # keep date if present (handy for debugging / plotting)
+    if "date" in df.columns:
+        feats["date"] = pd.to_datetime(df["date"])
+
+    # tidy
+    feats = feats.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+    meta = {
+        "n_rows": int(len(feats)),
+        "n_cols": int(feats.shape[1]),
+        "used_cols": list(feats.columns),
+    }
+    return feats, meta
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--in", dest="inp", required=True)
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--in",  dest="inp",  required=True)
+    ap.add_argument("--out", dest="outp", required=True)
     args = ap.parse_args()
 
     df = pd.read_parquet(args.inp)
-    feats = add_basic_feats(df)
-
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    feats.to_parquet(args.out, index=False)
-    print(f"Saved features → {args.out} (rows={len(feats)}, cols={len(feats.columns)})")
+    feats, meta = build(df)
+    Path(args.outp).parent.mkdir(parents=True, exist_ok=True)
+    feats.to_parquet(args.outp, index=False)
+    print(f"Saved features → {args.outp} (rows={len(feats)}, cols={feats.shape[1]})")
+    print(meta)
 
 if __name__ == "__main__":
     main()

@@ -1,3 +1,4 @@
+# service/api/app.py
 # --- ensure vendored packages are importable ---
 import os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -12,18 +13,23 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 
-from service.engine.positions import init_db, get_status, paper_buy_stub, paper_sell_stub, paper_reset
-from service.engine.quotes import get_quote
+from service.engine.positions import (
+    init_db,
+    get_status,
+    get_history,
+    paper_reset,
+    paper_buy_at_1528,
+    paper_sell_at_0921,
+    build_atm_legs_1528,
+    paper_option_px_at_0921,   # needed by /sell route (explicit exit value)
+)
 from service.engine.selector import predict as ml_predict
 from service.engine.quotes import get_quote
 from service.engine.scheduler import start_scheduler, get_next_runs_ist
-from service.engine.positions import init_db, get_status, paper_buy_stub, paper_sell_stub, paper_reset, get_history
-from service.engine.positions import get_history
-
 
 load_dotenv(override=True)
 
-app = FastAPI(title="NIFTY Options ML Paper Bot", version="0.1.0")
+app = FastAPI(title="NIFTY Options ML – PAPER", version="0.2.0")
 
 # static + templates
 STATIC_DIR = os.path.join(ROOT, "service", "api", "static")
@@ -32,23 +38,29 @@ os.makedirs(STATIC_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TPL_DIR)
 
+
 @app.on_event("startup")
 async def _startup():
+    # init schema + seed funds + clear position row if missing
     await init_db()
-    start_scheduler(app)  # <-- this must be present
+    # start the cron scheduler (idempotent)
+    start_scheduler(app)
+
 
 # ---------- UI ----------
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
+
 # ---------- Meta ----------
 @app.get("/api", tags=["meta"])
 async def hello():
-    return {"hello": "nifty-bot", "mode": "PAPER", "version": "0.1.0"}
+    return {"hello": "nifty-bot", "mode": "PAPER", "version": "0.2.0"}
+
 
 # ---------- Paper engine ----------
-@app.get("/status")
+@app.get("/status", tags=["paper"])
 async def status_endpoint():
     s = await get_status()
     s["next_jobs_IST"] = get_next_runs_ist()
@@ -56,29 +68,39 @@ async def status_endpoint():
 
 @app.get("/trade-history", tags=["paper"])
 async def trade_history():
-    return await get_history(50)
+    return {"items": await get_history()}
 
 @app.post("/paper/buy", tags=["paper"])
 async def paper_buy():
-    res = await paper_buy_stub()
-    return JSONResponse(res, status_code=status.HTTP_202_ACCEPTED if res.get("ok") else status.HTTP_200_OK)
+    # get latest prediction + index LTP for ATM
+    ml = ml_predict()
+    q = await get_quote("NSE:NIFTY")
+    ltp = q.get("ltp")
+    if not ltp:
+        return JSONResponse({"ok": False, "error": "no NIFTY LTP"}, 200)
+    atm = int(round(ltp / 50) * 50)
+    res = await paper_buy_at_1528(direction=ml.get("direction",""), atm=atm)
+    code = status.HTTP_202_ACCEPTED if res.get("ok") else status.HTTP_400_BAD_REQUEST
+    return JSONResponse(res, code)
 
 @app.post("/paper/sell", tags=["paper"])
 async def paper_sell():
-    res = await paper_sell_stub()
-    return JSONResponse(res, status_code=status.HTTP_202_ACCEPTED if res.get("ok") else status.HTTP_200_OK)
+    res = await paper_sell_at_0921()
+    code = status.HTTP_202_ACCEPTED if res.get("ok") else status.HTTP_400_BAD_REQUEST
+    return JSONResponse(res, code)
 
 @app.post("/paper/reset", tags=["paper"])
 async def paper_reset_endpoint():
     res = await paper_reset()
     return JSONResponse(res, status_code=status.HTTP_200_OK)
 
+
 # ---------- ML / Quotes ----------
 @app.get("/prediction", tags=["ml"])
 async def prediction():
     """
-    Uses latest features row and trained models.
-    Suggests simple strikes using live NIFTY LTP (ATM ± 1 step).
+    Uses latest features row + trained models.
+    Also suggests simple strikes using live NIFTY LTP (ATM ± 1 step).
     """
     try:
         ml = ml_predict()
