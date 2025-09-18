@@ -1,147 +1,288 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <title>NIFTY Paper Bot</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <link rel="icon" href="/static/favicon.ico">
+  <meta charset="utf-8" />
+  <title>NIFTY Options ML — PAPER</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root { --bg:#0b0f14; --card:#121821; --text:#e9eef7; --muted:#9fb0c3; --pos:#18c37d; --neg:#ff6b6b; --accent:#5ea1ff; }
+    :root{
+      --bg:#0f1116; --panel:#171923; --panel-2:#1c2030; --muted:#9aa3b2; --text:#e8eefc;
+      --blue:#3b82f6; --blue-2:#2563eb; --green:#22c55e; --red:#ef4444; --amber:#f59e0b; --chip:#0b1220;
+      --radius:14px; --shadow:0 6px 20px rgba(0,0,0,.35);
+    }
     *{box-sizing:border-box}
-    body{margin:0;background:var(--bg);color:var(--text);font:14px/1.35 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
-    header{padding:18px 22px;border-bottom:1px solid #1e2633;display:flex;justify-content:space-between;align-items:center}
-    h1{margin:0;font-size:18px}
-    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;padding:16px}
-    .card{background:var(--card);border:1px solid #1c2431;border-radius:14px;padding:14px;box-shadow:0 6px 18px rgba(0,0,0,.25)}
-    .k{color:var(--muted);font-size:12px}
-    .v{font-weight:600}
-    .row{display:flex;justify-content:space-between;margin:4px 0}
-    .pos{color:var(--pos)} .neg{color:var(--neg)}
-    button{background:var(--accent);border:0;color:#fff;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer}
-    button.muted{background:#243247;color:var(--muted)}
-    table{width:100%;border-collapse:collapse;margin-top:8px}
-    th,td{border-bottom:1px solid #1e2633;padding:8px 6px;text-align:left}
-    small{color:var(--muted)}
-    .buttons{display:flex;gap:8px;flex-wrap:wrap}
-    code{background:#0e141d;color:#cde; padding:2px 6px;border-radius:6px}
+    html,body{height:100%}
+    body{
+      margin:0; font: 14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
+      color:var(--text); background:radial-gradient(1200px 800px at 80% -100px, #1a2030 0%, #0f1116 60%);
+    }
+    header{
+      position:sticky; top:0; z-index:10;
+      display:flex; align-items:center; justify-content:space-between;
+      padding:14px 18px; background:#0f1116cc; backdrop-filter:saturate(140%) blur(6px); border-bottom:1px solid #161a24;
+    }
+    header h1{margin:0; font-size:16px; letter-spacing:.35px;}
+    header .clock{opacity:.7; font-size:13px}
+    main{padding:18px; display:grid; gap:16px; grid-template-columns:repeat(12,1fr)}
+    .card{
+      background:linear-gradient(180deg,var(--panel) 0%, var(--panel-2) 100%);
+      border:1px solid #202536; border-radius:var(--radius); box-shadow:var(--shadow); padding:16px;
+    }
+    .span-4{grid-column:span 4}
+    .span-6{grid-column:span 6}
+    .span-8{grid-column:span 8}
+    .title{font-weight:700; margin:0 0 10px 0; font-size:15px}
+    .grid2{display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center}
+    .kv{display:flex; align-items:center; justify-content:space-between; margin:6px 0; padding:6px 10px; background:#121623; border-radius:10px;}
+    .kv b{font-weight:700}
+    .chip{
+      display:inline-flex; align-items:center; gap:8px; background:var(--chip); border:1px solid #1f2b45;
+      padding:6px 10px; border-radius:999px; font-size:12px; color:#cbd5e1;
+    }
+    .chip .dot{width:8px; height:8px; border-radius:50%}
+    .chip.up .dot{background:var(--green)} .chip.down .dot{background:var(--red)}
+    .muted{color:var(--muted)}
+    .row{display:flex; gap:10px; flex-wrap:wrap}
+    button{
+      all:unset; cursor:pointer; padding:9px 14px; border-radius:10px; background:var(--blue); color:white;
+      font-weight:700; box-shadow:0 6px 14px rgba(59,130,246,.25); transition:transform .06s ease, background .2s ease;
+    }
+    button:hover{background:var(--blue-2)} button:active{transform:translateY(1px)}
+    button.secondary{background:#26324a} button.secondary:hover{background:#2b3a58}
+    button:disabled{opacity:.6; cursor:not-allowed}
+    .danger{background:var(--red)} .danger:hover{background:#dc2626}
+    table{width:100%; border-collapse:collapse; overflow:hidden; border-radius:10px; background:#121623}
+    th,td{padding:10px 12px; text-align:left; border-bottom:1px solid #202536; font-size:13px}
+    th{color:#c7d2fe; background:#101420; position:sticky; top:0}
+    .right{text-align:right}
+    .mono{font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+    .ok{color:var(--green)} .bad{color:var(--red)}
+    .toast{
+      position:fixed; right:16px; bottom:16px; background:#0b0f18; border:1px solid #1f2b45; color:#dbe7ff;
+      padding:10px 12px; border-radius:12px; box-shadow:var(--shadow); max-width:420px; display:none; z-index:30;
+    }
+    .toast.show{display:block; animation:pop .14s ease-out}
+    @keyframes pop{from{transform:translateY(6px); opacity:.4} to{transform:none; opacity:1}}
+    @media (max-width: 980px){
+      .span-8,.span-6,.span-4{grid-column:span 12}
+    }
   </style>
 </head>
 <body>
-<header>
-  <h1>NIFTY Options ML – PAPER</h1>
-  <small id="clock">IST —</small>
-</header>
-
-<div class="grid">
-  <section class="card">
-    <h3>Funds</h3>
-    <div class="row"><span class="k">Cash</span><span class="v" id="funds_cash">—</span></div>
-    <div class="row"><span class="k">Realized</span><span class="v" id="funds_realized">—</span></div>
-    <div class="row"><span class="k">Unrealized (MTM)</span><span class="v" id="funds_unrealized">—</span></div>
-    <div class="row"><span class="k">Next jobs (IST)</span><span class="v" id="next_jobs">—</span></div>
-    <div class="buttons" style="margin-top:10px">
-      <button onclick="post('/paper/buy')">BUY (paper)</button>
-      <button onclick="post('/paper/sell')">SELL (paper)</button>
-      <button class="muted" onclick="confirmReset()">Reset</button>
+  <header>
+    <h1>NIFTY Options ML — PAPER</h1>
+    <div class="row">
+      <div id="predChip" class="chip"><span class="dot"></span><span class="mono muted">No prediction yet</span></div>
+      <div class="clock" id="clock"></div>
     </div>
-  </section>
+  </header>
 
-  <section class="card">
-    <h3>Open Position</h3>
-    <div id="open_pos">No open position.</div>
-  </section>
+  <main>
+    <!-- Funds -->
+    <section class="card span-4">
+      <div class="grid2">
+        <h3 class="title">Funds</h3>
+        <div class="chip" id="marketChip" title="IST schedule">
+          <span class="dot" style="background:var(--amber)"></span>
+          <span class="mono" id="schedTxt">Buy 15:28 • Sell 09:21</span>
+        </div>
+      </div>
 
-  <section class="card">
-    <h3>Prediction</h3>
-    <div id="pred">—</div>
-  </section>
+      <div class="kv"><span>Balance</span><b id="balance">—</b></div>
+      <div class="kv">
+        <span>P&amp;L (MTM)</span>
+        <b id="pnl">—</b>
+      </div>
+      <div class="kv"><span>Used</span><b id="used">—</b></div>
 
-  <section class="card" style="grid-column:1/-1">
-    <h3>Trade History</h3>
-    <table>
-      <thead><tr><th>Opened</th><th>Legs</th><th>Lots</th><th>Entry</th><th>Exit</th><th>P&L</th></tr></thead>
-      <tbody id="hist"></tbody>
-    </table>
-  </section>
-</div>
+      <div class="row" style="margin-top:12px">
+        <button id="btnBuy">BUY (paper)</button>
+        <button id="btnSell" class="secondary">SELL (paper)</button>
+      </div>
+      <div class="muted mono" id="msg" style="margin-top:8px; min-height:18px;"></div>
+    </section>
 
-<script>
-const fmtINR = n => (n===null || n===undefined) ? '—'
-  : new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n);
+    <!-- Open Position -->
+    <section class="card span-4">
+      <div class="grid2">
+        <h3 class="title">Open Position</h3>
+        <div id="sideChip" class="chip muted"><span class="dot" style="background:#3b3f51"></span><span class="mono">—</span></div>
+      </div>
+      <div id="openEmpty" class="muted">No open position.</div>
+      <div id="openBlock" style="display:none">
+        <table>
+          <thead><tr><th>Leg</th><th>Symbol</th><th class="right">Lots</th><th class="right">Entry</th></tr></thead>
+          <tbody id="openRows"></tbody>
+        </table>
+        <div class="kv" style="margin-top:10px">
+          <span>Ratio</span><b id="ratio">—</b>
+        </div>
+      </div>
+    </section>
 
-const tz = 'Asia/Kolkata';
-function tzFmt(ts){
-  if (!ts) return '—';
-  try { return new Date(ts).toLocaleString('en-IN',{timeZone:tz}); }
-  catch { return String(ts); }
-}
+    <!-- Trade History -->
+    <section class="card span-4">
+      <h3 class="title">Trade History</h3>
+      <div class="muted">Every trade is saved in <span class="mono">reports/trades.csv</span> with lots, entry/exit, per-leg P&amp;L, total P&amp;L.<br/>We can render it here once the endpoint is wired.</div>
+      <div class="row" style="margin-top:10px">
+        <a class="chip" href="#" onclick="downloadTrades();return false;">Download CSV (when served)</a>
+      </div>
+    </section>
 
-async function getJSON(u){ const r = await fetch(u); return r.json(); }
-async function post(u){ const r = await fetch(u,{method:'POST'}); const j = await r.json(); console.log(j); await refresh(); }
+    <!-- Prediction -->
+    <section class="card span-8">
+      <h3 class="title">Latest Signal</h3>
+      <div class="kv">
+        <span>Direction</span><b id="dir">—</b>
+      </div>
+      <div class="kv">
+        <span>Confidence</span><b id="conf">—</b>
+      </div>
+      <div class="muted mono" id="lastResp" style="margin-top:8px"></div>
+    </section>
+  </main>
 
-function confirmReset(){
-  if(confirm('Reset PAPER ledger/positions and reseed funds?')) post('/paper/reset');
-}
+  <div id="toast" class="toast"></div>
 
-function formatJobs(jobs){
-  if (!Array.isArray(jobs) || jobs.length===0) return '—';
-  return jobs.map(j => {
-    if (typeof j === 'string') return j;
-    if (j && typeof j === 'object') {
-      const id = j.id || j.name || 'job';
-      const when = j.next || j.next_run || j.when || j.time;
-      return `${id}: ${tzFmt(when)}`;
+  <script>
+    // ---------- Helpers ----------
+    function fmtINR(v){
+      if (v === '-' || v === null || v === undefined) return '-'
+      try{ return new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:2}).format(Number(v)) }
+      catch{ return v }
     }
-    return String(j);
-  }).join(' • ');
-}
+    function setText(id, val){ const el = document.getElementById(id); if(el) el.textContent = val }
+    function toast(msg, kind='info'){
+      const t = document.getElementById('toast')
+      t.textContent = msg
+      t.style.borderColor = kind==='error' ? '#49222a' : '#1f2b45'
+      t.classList.add('show')
+      setTimeout(()=>t.classList.remove('show'), 3200)
+    }
+    function nowISTStr(){
+      return new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})
+    }
 
-async function refresh(){
-  const st = await getJSON('/status');
+    // ---------- Schedule chip ----------
+    function updateSchedChip(){
+      const now = new Date()
+      const tz = 'Asia/Kolkata'
+      const today = new Date(new Date().toLocaleString('en-US',{timeZone:tz}))
+      const buy = new Date(today); buy.setHours(15,28,0,0)
+      const sell = new Date(today); sell.setHours(9,21,0,0)
+      const txt = `Buy ${buy.toLocaleTimeString('en-IN',{timeZone:tz,hour:'2-digit',minute:'2-digit'})} • Sell ${sell.toLocaleTimeString('en-IN',{timeZone:tz,hour:'2-digit',minute:'2-digit'})}`
+      setText('schedTxt', txt)
+    }
 
-  // Funds
-  document.getElementById('funds_cash').textContent = fmtINR(st?.funds?.cash);
-  document.getElementById('funds_realized').textContent = fmtINR(st?.funds?.realized);
-  document.getElementById('funds_unrealized').textContent = fmtINR(st?.funds?.unrealized);
-  document.getElementById('next_jobs').textContent = formatJobs(st?.next_jobs_IST);
+    // ---------- State ----------
+    let lastSignal = null   // {direction, confidence}
+    let busy = false
 
-  // Open position
-  const posDiv = document.getElementById('open_pos');
-  if(st.open_position){
-    const p = st.open_position;
-    posDiv.innerHTML = `<div class="row"><span class="k">Lots</span><span class="v">${p.lots} lots (qty=${p.lots * p.lot_size})</span></div>
-      <div class="row"><span class="k">Legs</span><span class="v">${(p.legs||[]).map(l => l.symbol).join(' + ')}</span></div>
-      <div class="row"><span class="k">Entry</span><span class="v">${tzFmt(p.ts)}</span></div>`;
-  } else {
-    posDiv.textContent = 'No open position.';
-  }
+    // ---------- Render funds & open position ----------
+    async function refreshFunds(){
+      try{
+        const r = await fetch('/api/funds'); const j = await r.json()
+        setText('balance', fmtINR(j.balance))
+        const pnlEl = document.getElementById('pnl')
+        if (j.pnl === null){ pnlEl.textContent='-'; pnlEl.className='' }
+        else{
+          pnlEl.textContent = fmtINR(j.pnl)
+          pnlEl.className = (j.pnl >= 0) ? 'ok' : 'bad'
+        }
+        setText('used', j.used==='-'?'-':fmtINR(j.used))
 
-  // History (placeholder until engine writes real history)
-  const hist = await getJSON('/trade-history');
-  const tb = document.getElementById('hist');
-  tb.innerHTML = (hist.items||[]).slice(0,25).map(h => `
-    <tr>
-      <td>${tzFmt(h.open_ts)}</td>
-      <td>${(h.legs||[]).map(l=>l.symbol).join(' + ')}</td>
-      <td>${h.lots ?? '—'}</td>
-      <td>${fmtINR(h.entry_value)}</td>
-      <td>${h.exit_ts ? fmtINR(h.exit_value) : '—'}</td>
-      <td class="${(h.pnl||0)>=0?'pos':'neg'}">${fmtINR(h.pnl)}</td>
-    </tr>`).join('');
+        // Open block
+        const open = j.open
+        const empty = document.getElementById('openEmpty')
+        const block = document.getElementById('openBlock')
+        const sideChip = document.getElementById('sideChip')
+        const rows = document.getElementById('openRows')
+        rows.innerHTML = ''
+        if (!open){
+          empty.style.display='block'; block.style.display='none'
+          sideChip.className='chip muted'; sideChip.querySelector('.dot').style.background='#3b3f51'
+          sideChip.querySelector('span + span').textContent='—'
+        } else {
+          empty.style.display='none'; block.style.display='block'
+          // side chip
+          const side = (open.side || '').toUpperCase()
+          sideChip.className = 'chip ' + (side==='UP'?'up':'down')
+          sideChip.querySelector('.dot').style.background = side==='UP'?'var(--green)':'var(--red)'
+          sideChip.querySelector('span + span').textContent = side
 
-  // Prediction card
-  const pred = await getJSON('/prediction');
-  document.getElementById('pred').innerHTML =
-    `<div class="row"><span class="k">Direction</span><span class="v">${pred.direction ?? '—'}</span></div>
-     <div class="row"><span class="k">Confidence</span><span class="v">${pred.confidence != null ? (pred.confidence*100).toFixed(1)+'%' : '—'}</span></div>
-     <div class="row"><span class="k">Strikes</span><span class="v">${(pred.suggested_strikes||[]).join(', ') || '—'}</span></div>`;
-}
+          const ce = open.ce || {}, pe = open.pe || {}
+          const ratio = `${ce.lots||0}:${pe.lots||0}`
+          setText('ratio', ratio)
 
-function tickClock(){
-  document.getElementById('clock').textContent = new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
-}
-setInterval(tickClock, 1000); tickClock();
-refresh(); setInterval(refresh, 10_000);
-</script>
+          const r1 = `<tr><td>CE</td><td class="mono">${ce.symbol||'-'}</td><td class="right">${ce.lots||'-'}</td><td class="right">${ce.entry!=null?fmtINR(ce.entry):'-'}</td></tr>`
+          const r2 = `<tr><td>PE</td><td class="mono">${pe.symbol||'-'}</td><td class="right">${pe.lots||'-'}</td><td class="right">${pe.entry!=null?fmtINR(pe.entry):'-'}</td></tr>`
+          rows.insertAdjacentHTML('beforeend', r1+r2)
+        }
+      }catch(err){
+        toast('Failed to load funds: '+err, 'error')
+      }
+    }
+
+    // ---------- BUY/SELL ----------
+    async function doBuy(){
+      if(busy) return; busy=true; setBtns()
+      setText('msg','Placing BUY…')
+      try{
+        const r = await fetch('/api/buy',{method:'POST'})
+        const j = await r.json()
+        lastSignal = {direction:j.direction, confidence:j.confidence}
+        renderSignal()
+        setText('msg','BUY: '+JSON.stringify(j))
+        toast('Buy placed (paper).')
+      }catch(err){
+        setText('msg','BUY failed: '+err); toast('BUY failed: '+err,'error')
+      } finally { busy=false; setBtns(); refreshFunds() }
+    }
+    async function doSell(){
+      if(busy) return; busy=true; setBtns()
+      setText('msg','Placing SELL…')
+      try{
+        const r = await fetch('/api/sell',{method:'POST'})
+        const j = await r.json()
+        setText('msg','SELL: '+JSON.stringify(j))
+        toast('Sell placed (paper).')
+      }catch(err){
+        setText('msg','SELL failed: '+err); toast('SELL failed: '+err,'error')
+      } finally { busy=false; setBtns(); refreshFunds() }
+    }
+    function setBtns(){
+      document.getElementById('btnBuy').disabled = busy
+      document.getElementById('btnSell').disabled = busy
+    }
+
+    // ---------- Prediction card ----------
+    function renderSignal(){
+      const chip = document.getElementById('predChip')
+      const dot = chip.querySelector('.dot')
+      const txt = chip.querySelector('span + span')
+      if(!lastSignal){ chip.className='chip'; dot.style.background='#3b3f51'; txt.textContent='No prediction yet'; setText('dir','—'); setText('conf','—'); return }
+      const dir = (lastSignal.direction||'').toUpperCase()
+      const conf = Number(lastSignal.confidence||0)
+      chip.className = 'chip ' + (dir==='UP'?'up':'down')
+      dot.style.background = dir==='UP'?'var(--green)':'var(--red)'
+      txt.textContent = `${dir} • ${(conf*100).toFixed(1)}%`
+      setText('dir', dir)
+      setText('conf', (conf*100).toFixed(1)+'%')
+      // keep small response preview
+      // (we’ll update this after each trade)
+    }
+
+    // placeholder until we expose an endpoint for CSV
+    function downloadTrades(){ toast('Ask backend to expose /api/trades to download CSV.', 'info') }
+
+    // ---------- Wiring ----------
+    document.getElementById('btnBuy').onclick = doBuy
+    document.getElementById('btnSell').onclick = doSell
+
+    setInterval(()=>{ document.getElementById('clock').textContent = nowISTStr() }, 1000)
+    updateSchedChip()
+    refreshFunds(); setInterval(refreshFunds, 3000)
+    renderSignal()
+  </script>
 </body>
 </html>

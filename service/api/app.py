@@ -1,131 +1,108 @@
 # service/api/app.py
-# --- ensure vendored packages are importable ---
-import os, sys
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-VENDOR = os.path.join(ROOT, "vendor")
-if VENDOR not in sys.path:
-    sys.path.insert(0, VENDOR)
-# ----------------------------------------------
+from __future__ import annotations
 
-from fastapi import FastAPI, status, Request
-from fastapi.responses import JSONResponse, HTMLResponse
+import importlib
+import pathlib
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 
-from service.engine.positions import (
-    init_db,
-    get_status,
-    get_history,
-    paper_reset,
-    paper_buy_at_1528,
-    paper_sell_at_0921,
-    build_atm_legs_1528,
-    paper_option_px_at_0921,   # needed by /sell route (explicit exit value)
+# Scheduler hooks (cron + manual triggers)
+from service.engine.scheduler import (
+    start_scheduler,
+    get_next_runs_ist,
+    predict_and_buy_1528,
+    squareoff_0921,
 )
-from service.engine.selector import predict as ml_predict
-from service.engine.quotes import get_quote
-from service.engine.scheduler import start_scheduler, get_next_runs_ist
 
+# -----------------------------------------------------------------------------
+# App, static, templates
+# -----------------------------------------------------------------------------
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 load_dotenv(override=True)
 
-app = FastAPI(title="NIFTY Options ML – PAPER", version="0.2.0")
+app = FastAPI(title="NIFTY Options ML — PAPER", version="0.2.0")
 
-# static + templates
-STATIC_DIR = os.path.join(ROOT, "service", "api", "static")
-TPL_DIR    = os.path.join(ROOT, "service", "api", "templates")
-os.makedirs(STATIC_DIR, exist_ok=True)
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-templates = Jinja2Templates(directory=TPL_DIR)
+STATIC_DIR = ROOT / "service" / "api" / "static"
+TPL_DIR = ROOT / "service" / "api" / "templates"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+TPL_DIR.mkdir(parents=True, exist_ok=True)
 
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+templates = Jinja2Templates(directory=str(TPL_DIR))
 
+# -----------------------------------------------------------------------------
+# Dynamically adapt to whatever functions exist in service.engine.positions
+# -----------------------------------------------------------------------------
+_positions = importlib.import_module("service.engine.positions")
+
+def _resolve(*candidates):
+    for name in candidates:
+        fn = getattr(_positions, name, None)
+        if callable(fn):
+            return fn
+    raise ImportError(
+        f"Could not find any of {candidates} in service.engine.positions. "
+        f"Available: {sorted(n for n in dir(_positions) if not n.startswith('_'))}"
+    )
+
+# <-- include 'funds_snapshot' here
+get_funds = _resolve("get_funds", "funds", "funds_status", "status", "funds_snapshot")
+
+# -----------------------------------------------------------------------------
+# Startup: start APScheduler (guard against double-start on --reload)
+# -----------------------------------------------------------------------------
 @app.on_event("startup")
-async def _startup():
-    # init schema + seed funds + clear position row if missing
-    await init_db()
-    # start the cron scheduler (idempotent)
-    start_scheduler(app)
+def _startup() -> None:
+    if getattr(app.state, "scheduler_started", False):
+        return
+    try:
+        start_scheduler(app=app)
+        app.state.scheduler_started = True
+    except Exception as e:
+        # Keep API alive even if scheduler wiring fails
+        print(f"[startup] scheduler failed to start: {e}")
 
-
-# ---------- UI ----------
+# -----------------------------------------------------------------------------
+# Routes
+# -----------------------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request):
+def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
+@app.get("/api/health")
+def api_health():
+    return {"ok": True}
 
-# ---------- Meta ----------
-@app.get("/api", tags=["meta"])
-async def hello():
-    return {"hello": "nifty-bot", "mode": "PAPER", "version": "0.2.0"}
-
-
-# ---------- Paper engine ----------
-@app.get("/status", tags=["paper"])
-async def status_endpoint():
-    s = await get_status()
-    s["next_jobs_IST"] = get_next_runs_ist()
-    return s
-
-@app.get("/trade-history", tags=["paper"])
-async def trade_history():
-    return {"items": await get_history()}
-
-@app.post("/paper/buy", tags=["paper"])
-async def paper_buy():
-    # get latest prediction + index LTP for ATM
-    ml = ml_predict()
-    q = await get_quote("NSE:NIFTY")
-    ltp = q.get("ltp")
-    if not ltp:
-        return JSONResponse({"ok": False, "error": "no NIFTY LTP"}, 200)
-    atm = int(round(ltp / 50) * 50)
-    res = await paper_buy_at_1528(direction=ml.get("direction",""), atm=atm)
-    code = status.HTTP_202_ACCEPTED if res.get("ok") else status.HTTP_400_BAD_REQUEST
-    return JSONResponse(res, code)
-
-@app.post("/paper/sell", tags=["paper"])
-async def paper_sell():
-    res = await paper_sell_at_0921()
-    code = status.HTTP_202_ACCEPTED if res.get("ok") else status.HTTP_400_BAD_REQUEST
-    return JSONResponse(res, code)
-
-@app.post("/paper/reset", tags=["paper"])
-async def paper_reset_endpoint():
-    res = await paper_reset()
-    return JSONResponse(res, status_code=status.HTTP_200_OK)
-
-
-# ---------- ML / Quotes ----------
-@app.get("/prediction", tags=["ml"])
-async def prediction():
-    """
-    Uses latest features row + trained models.
-    Also suggests simple strikes using live NIFTY LTP (ATM ± 1 step).
-    """
+@app.get("/api/funds")
+def api_funds():
     try:
-        ml = ml_predict()
+        data = get_funds()
+        return JSONResponse(data)
     except Exception as e:
-        return {"error": f"model/feature error: {e}"}
+        return JSONResponse({"error": f"failed to compute funds: {e}"}, status_code=500)
 
-    # live NIFTY LTP for ATM strike rounding
-    q = await get_quote("NSE:NIFTY")
-    ltp = q.get("ltp")
-    step = 50  # NIFTY strike step
-    atm = int(round((ltp or 0) / step) * step) if ltp else None
+@app.post("/api/buy")
+async def api_buy():
+    try:
+        res = await predict_and_buy_1528()
+        return JSONResponse(res)
+    except Exception as e:
+        return JSONResponse({"detail": str(e)}, status_code=400)
 
-    # naive suggestions
-    if atm:
-        if ml["direction"] == "UP":
-            ml["suggested_strikes"] = [f"NIFTY {atm} CE", f"NIFTY {atm+step} CE"]
-        elif ml["direction"] == "DOWN":
-            ml["suggested_strikes"] = [f"NIFTY {atm} PE", f"NIFTY {atm-step} PE"]
-        else:
-            ml["suggested_strikes"] = [f"NIFTY {atm} CE", f"NIFTY {atm} PE"]
+@app.post("/api/sell")
+async def api_sell():
+    try:
+        res = await squareoff_0921()
+        return JSONResponse(res)
+    except Exception as e:
+        return JSONResponse({"detail": str(e)}, status_code=400)
 
-    ml["ltp"] = ltp
-    return ml
-
-
-@app.get("/quotes", tags=["quotes"])
-async def quotes(symbol: str = "NSE:NIFTY"):
-    return await get_quote(symbol)
+@app.get("/api/jobs")
+def api_jobs():
+    try:
+        return {"next": get_next_runs_ist()}
+    except Exception as e:
+        return JSONResponse({"error": f"failed to read jobs: {e}"}, status_code=500)
